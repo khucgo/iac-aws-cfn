@@ -1,0 +1,12 @@
+{
+   "Pipeline": {
+      "ExecutionId": "#{codepipeline.PipelineExecutionId}"
+   },
+   "Source": {
+      "AuthorDate": "#{SourceVariables.AuthorDate}",
+      "BranchName": "#{SourceVariables.BranchName}",
+      "CommitId": "#{SourceVariables.CommitId}",
+      "CommitterDate": "#{SourceVariables.CommitterDate}",
+      "RepositoryName": "#{SourceVariables.RepositoryName}"
+   }
+}

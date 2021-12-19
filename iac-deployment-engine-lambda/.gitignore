@@ -1,0 +1,9 @@
+# dot files
+.*
+
+# binaries
+*.drawio
+*.zip
+
+# self
+!.gitignore

@@ -1,0 +1,25 @@
+Description: |-
+  CHANGES
+
+# Mode
+# Description: To quickly provision/destroy or simply make changes to severals
+# Options:
+#   provision: will provision all according to .inventory.yaml
+#   destroy: will destroy all according to .inventory.yaml
+#   change: will process what declared in Changes
+#   # 2 extra modes below:
+#   on: used when turn on the environment
+#   off: used when turn off the environment
+Mode: 'provision'
+
+# In case of Mode: 'change'
+Changes:
+  - Object: 'aws'
+    # Conditions: ['provision','on']
+    Service: 'iam'
+    Action: 'list_users'
+    Params:
+
+Metadata:
+  Authors:
+    - Quang Vien

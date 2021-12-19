@@ -1,0 +1,38 @@
+{
+    "CodePipeline.job": {
+        "id": "11111111-abcd-1111-abcd-111111abcdef",
+        "accountId": "111111111111",
+        "data": {
+            "actionConfiguration": {
+                "configuration": {
+                    "FunctionName": "MyLambdaFunction",
+                    "UserParameters": "input_parameter"
+                }
+            },
+            "inputArtifacts": [
+                {
+                    "location": {
+                        "s3Location": {
+                            "bucketName": "bucket_name",
+                            "objectKey": "filename"
+                        },
+                        "type": "S3"
+                    },
+                    "revision": null,
+                    "name": "ArtifactName"
+                }
+            ],
+            "outputArtifacts": [],
+            "artifactCredentials": {
+                "secretAccessKey": "secret_key",
+                "sessionToken": "session_token",
+                "accessKeyId": "access_key_ID"
+            },
+            "continuationToken": "token_ID",
+            "encryptionKey": {
+                "id": "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+                "type": "KMS"
+            }
+        }
+    }
+}

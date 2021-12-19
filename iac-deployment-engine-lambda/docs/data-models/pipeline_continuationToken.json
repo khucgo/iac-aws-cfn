@@ -1,0 +1,9 @@
+{
+    "StackName": "<STACK_NAME_HERE>",
+    "StackId": "<STACK_ID_HERE>",
+    "StackDesire": "<CREATE_COMPLETE|UPDATE_COMPLETE|DELETE_COMPLETE>",
+    "Block": "<Number>",
+    "Status": "<DONE|WAITING>",
+    "Occurrence": "<None|Number>",
+    "Sequence": "<Number>"
+}

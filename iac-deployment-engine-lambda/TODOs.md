@@ -1,0 +1,13 @@
+# TODO list
+- Rollback in case of failure in pipeline execution. Sub-cases:
+    - Single stack in an individual change: [Comment: Do not need to do anything. AWS supports rollback already.]
+    - Multiple stacks in an individual change:
+        - Failed in first stack. [Comment: Do not need to do anything. AWS supports rollback already.]
+        - Failed in the rest.
+- Multi-threading to save time when provision dependent resources.
+- Validate `.changes.yaml` and `.inventory.yaml` [Comment: Done for first level validation.]
+- Variables in `.changes.yaml` and `.inventory.yaml`
+- Detect drifts before updating and make decisions.
+- Use change set? [Comment: Not necessary.]
+- Handle aws and kubectl cli for NEW change block.
+- Handle aws and kubectl cli for OLD change block.

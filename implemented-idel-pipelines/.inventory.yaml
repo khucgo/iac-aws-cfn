@@ -1,0 +1,31 @@
+Description: >-
+  To provision CodePipeline pipelines for `IaC Deployment Engine Lambda`.
+  Refer to `IaC Deployment Engine` flow.
+
+# ---
+Inventory:
+  ### Pipeline to manipulate pipelines for IDEL implementation
+  - Object: 'cfn'
+    # Conditions: ['provision','destroy','on','off']
+    # Action: ''
+    Stack: 'implemented-idel-pipelines-pipeline'
+    Template: 'cfn-templates/CodepipelineAndRunner_Approval.tpl.yaml'
+    Params:
+      CodeS3Bucket: '<REQUIRED>'
+      CodeS3Key: 'idel/iac-deployment-engine-lambda_v0.1.4.zip'
+      Layers: 'arn:aws:lambda:<REGION>:<AWS_ACCOUNT>:layer:python-pyyaml:1,arn:aws:lambda:<REGION>:<AWS_ACCOUNT>:layer:python-logdecorator:1'
+      CodeCommitRepoName: '<REQUIRED>'
+      CodeCommitRepoBranch: '<REQUIRED>'
+      SecretInstance: '<REQUIRED>'
+      CodePipelineBucket: '<REQUIRED>'
+      Region: '<REQUIRED>'
+      TagKey: 'project'
+      TagValue: 'iac'
+    Caps:
+      - CAPABILITY_IAM
+      - CAPABILITY_NAMED_IAM
+
+# ---
+Metadata:
+  Maintainers:
+    - Quang Vien

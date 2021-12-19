@@ -1,0 +1,451 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation template for CodePipeline (with Approval) and Lambda function as a runner.
+Metadata:
+  Maintainers: Quang Vien
+  Notes: |-
+    Template type is template.
+    Pipeline name is the same as stack name.
+    Pre-requisites: AWS resources:
+      - CodeCommit repository for IaC of target pipeline.
+      - Secrets Manager instance.
+      - S3 bucket and object that host pipeline runner (Lambda function) code.
+      - Lambda layers that pipeline runner (Lambda function) depends on.
+      - S3 bucket of CodePipeline that stores source artifacts.
+
+Parameters:
+  # Codepipeline
+  CodeCommitRepoName:
+    Type: String
+    Default: ''
+  CodeCommitRepoBranch:
+    Type: String
+    Default: ''
+  # ArtifactStoreBucket:
+  # # The same as CodePipelineBucket.
+  #   Type: String
+  #   Default: ''
+  # InvokeLambdaFunctionName:
+  # # Lambda function name is the same as stack name.
+  #   Type: String
+  #   Default: ''
+  InvokeLambdaUserParameters:
+    Type: String
+    Default: '{"Pipeline":{"ExecutionId":"#{codepipeline.PipelineExecutionId}"},"Source":{"AuthorDate":"#{SourceVariables.AuthorDate}","BranchName":"#{SourceVariables.BranchName}","CommitId":"#{SourceVariables.CommitId}","CommitterDate":"#{SourceVariables.CommitterDate}","RepositoryName":"#{SourceVariables.RepositoryName}"}}'
+
+  # SNS
+  KmsMasterKeyId:
+    Type: String
+    Default: 'alias/aws/sns'
+
+  # Lambda function
+  CodeS3Bucket:
+    Type: String
+    Default: ''
+  CodeS3Key:
+    Type: String
+    Default: ''
+  Layers:
+    Type: CommaDelimitedList
+    Default: ''
+  SecretInstance:
+    Type: String
+    Default: ''
+  # COMMON
+  CodePipelineBucket:
+    Type: String
+    Default: ''
+  Region:
+    Type: String
+    Default: ''
+  TagKey:
+    Type: String
+    Default: ''
+  TagValue:
+    Type: String
+    Default: ''
+
+Resources:
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-codepipeline'
+      # Description: String
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'codepipeline.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   - String
+      # MaxSessionDuration: Integer
+      # Path: String
+      # PermissionsBoundary: String
+      Policies:
+        - PolicyName: !Ref 'AWS::StackName'
+          PolicyDocument: |-
+            {
+                "Statement": [
+                    {
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow",
+                        "Condition": {
+                            "StringEqualsIfExists": {
+                                "iam:PassedToService": [
+                                    "cloudformation.amazonaws.com",
+                                    "elasticbeanstalk.amazonaws.com",
+                                    "ec2.amazonaws.com",
+                                    "ecs-tasks.amazonaws.com"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "Action": [
+                            "codecommit:CancelUploadArchive",
+                            "codecommit:GetBranch",
+                            "codecommit:GetCommit",
+                            "codecommit:GetRepository",
+                            "codecommit:GetUploadArchiveStatus",
+                            "codecommit:UploadArchive"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "cloudwatch:*",
+                            "s3:*",
+                            "sns:*"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "lambda:InvokeFunction",
+                            "lambda:ListFunctions"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    }
+                ],
+                "Version": "2012-10-17"
+            }
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref 'AWS::StackName'
+      RestartExecutionOnUpdate: No
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Location: !Ref CodePipelineBucket
+        Type: S3
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              RunOrder: 1
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: '1'
+              Configuration:
+                RepositoryName: !Ref CodeCommitRepoName
+                BranchName: !Ref CodeCommitRepoBranch
+                PollForSourceChanges: No
+              # InputArtifacts:
+              #   - Name:
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Namespace: SourceVariables
+              Region: !Ref Region
+              # RoleArn: String
+        - Name: Approval
+          Actions:
+            - Name: Approval
+              RunOrder: 1
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                CustomData: !Sub 'Please have a look at the execution of the CodePipeline named ${AWS::StackName} which source repository is at the link.'
+                ExternalEntityLink: !Sub 'https://${Region}.console.aws.amazon.com/codesuite/codecommit/repositories/${CodeCommitRepoName}/browse'
+                NotificationArn: !Ref SNStopic
+              Region: !Ref Region
+              # RoleArn: String
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              RunOrder: 1
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Ref Function
+                UserParameters: !Ref InvokeLambdaUserParameters
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: DeployArtifact
+              Namespace: DeployVariables
+              Region: !Ref Region
+              # RoleArn: String
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+  EventBridgeCodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-eventbridge'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'events.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: !Sub 'events-invoke-codepipeline-${AWS::StackName}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Resource: !Sub 'arn:aws:codepipeline:${Region}:${AWS::AccountId}:${AWS::StackName}'
+                Action:
+                  - codepipeline:StartPipelineExecution
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+  EventBridgeCodePipelineRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Ref 'AWS::StackName'
+      Description: 'Rule to trigger CodePipeline'
+      EventBusName: 'default'
+      EventPattern:
+        source:
+          - aws.codecommit
+        resources:
+          - !Sub 'arn:aws:codecommit:${Region}:${AWS::AccountId}:${CodeCommitRepoName}'
+        detail-type:
+          - 'CodeCommit Repository State Change'
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - !Ref CodeCommitRepoBranch
+      State: ENABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:codepipeline:${Region}:${AWS::AccountId}:${AWS::StackName}'
+          Id: codepipeline
+          RoleArn: !GetAtt EventBridgeCodePipelineRole.Arn
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref 'AWS::StackName'
+      Description: ''
+      MemorySize: 128
+      Timeout: 900
+      Role: !GetAtt FunctionRole.Arn
+      Environment:
+        Variables:
+          ARTIFACT_DIR: /tmp/artifact/
+          CFN_WAITER_CONFIG: '{"Delay": 5,"MaxAttempts": 120}'
+          CHANGES_FILE: .changes.yaml
+          LOGGING_LEVEL: INFO
+          SECRET_NAME: !Ref SecretInstance
+          WAITING_OCCURRENCE: '5'
+      Runtime: python3.8
+      Layers: !Ref Layers
+      Handler: lambda_function.lambda_handler
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      # CodeSigningConfigArn: String
+      # DeadLetterConfig:
+      #   DeadLetterConfig
+      # FileSystemConfigs:
+      #   - FileSystemConfig
+      # ImageConfig:
+      #   ImageConfig
+      # KmsKeyArn: String
+      # PackageType: String
+      # ReservedConcurrentExecutions: Integer
+      # TracingConfig:
+      #   TracingConfig
+      # VpcConfig:
+      #   VpcConfig
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lambda'
+      # Description: String
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   - String
+      # MaxSessionDuration: Integer
+      # Path: String
+      # PermissionsBoundary: String
+      Policies:
+        - PolicyName: 'cw-logs'
+          PolicyDocument:
+            Fn::Sub: |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "logs:CreateLogGroup",
+                        "Resource": "arn:aws:logs:${Region}:${AWS::AccountId}:*"
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents"
+                        ],
+                        "Resource": [
+                            "arn:aws:logs:${Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}:*"
+                        ]
+                    }
+                ]
+              }
+        - PolicyName: 'codepipeline'
+          PolicyDocument:
+            Fn::Sub: |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "VisualEditor0",
+                        "Effect": "Allow",
+                        "Action": "codepipeline:GetPipeline",
+                        "Resource": "arn:aws:codepipeline:${Region}:${AWS::AccountId}:${AWS::StackName}"
+                    },
+                    {
+                        "Sid": "VisualEditor1",
+                        "Effect": "Allow",
+                        "Action": [
+                            "codepipeline:PutJobFailureResult",
+                            "codepipeline:PutJobSuccessResult"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+              }
+        - PolicyName: 's3'
+          PolicyDocument:
+            Fn::Sub: |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "VisualEditor0",
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:ListBucket"
+                        ],
+                        "Resource": [
+                            "arn:aws:s3:::${CodePipelineBucket}",
+                            "arn:aws:s3:::${CodePipelineBucket}/*"
+                        ]
+                    }
+                ]
+              }
+        - PolicyName: 'secrets-manager'
+          PolicyDocument:
+            Fn::Sub: |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "VisualEditor0",
+                        "Effect": "Allow",
+                        "Action": "secretsmanager:ListSecrets",
+                        "Resource": "*"
+                    },
+                    {
+                        "Sid": "VisualEditor1",
+                        "Effect": "Allow",
+                        "Action": [
+                            "secretsmanager:GetSecretValue",
+                            "secretsmanager:DescribeSecret"
+                        ],
+                        "Resource": "arn:aws:secretsmanager:${Region}:${AWS::AccountId}:secret:${SecretInstance}-*"
+                    }
+                ]
+              }
+
+  SNStopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref AWS::StackName
+      KmsMasterKeyId: !Ref KmsMasterKeyId
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+
+Outputs:
+  Pipeline:
+    Value: !Ref Pipeline
+    Export:
+      Name: !Sub '${AWS::StackName}::Pipeline'
+  PipelineVersion:
+    Value: !GetAtt Pipeline.Version
+    Export:
+      Name: !Sub '${AWS::StackName}::PipelineVersion'
+  PipelineRoleArn:
+    Value: !GetAtt PipelineRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}::PipelineRoleArn'
+  EventBridgeCodePipelineRoleArn:
+    Value: !GetAtt EventBridgeCodePipelineRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}::EventBridgeCodePipelineRoleArn'
+  Function:
+    Value: !Ref Function
+    Export:
+      Name: !Sub '${AWS::StackName}::Function'
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}::FunctionArn'
+  FunctionRoleArn:
+    Value: !GetAtt FunctionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}::FunctionRoleArn'
+  SNStopicArn:
+    Value: !Ref SNStopic
+    Export:
+      Name: !Sub '${AWS::StackName}::SNStopic'
+  SNStopicName:
+    Value: !GetAtt SNStopic.TopicName
+    Export:
+      Name: !Sub '${AWS::StackName}::SNStopicName'
